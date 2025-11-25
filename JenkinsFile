@@ -61,47 +61,51 @@ parameters {
                 sh "mvn deploy -DskipTests=true" }
             }
         }
-        stage('Sonar Analysis') {
-            when { expression { params.RUN_SONAR } }
-            steps {
-                withSonarQubeEnv('sonar-scanner') {
-                    sh '''
-                        $SCANNER_HOME/bin/sonar-scanner \
-                        -Dsonar.java.binaries=. \
-                        -Dsonar.projectName=Multi-Tier-BankApp-CI \
-                        -Dsonar.projectKey=Multi-Tier-BankApp-CI
-                    '''
+       
+                stage('Quality & Security Parallel Jobs') {
+            parallel {
+                stage('Sonar Analysis') {
+                    when { expression { params.RUN_SONAR } }
+                    steps {
+                        withSonarQubeEnv('sonar-scanner') {
+                            sh '''
+                                $SCANNER_HOME/bin/sonar-scanner \
+                                -Dsonar.java.binaries=. \
+                                -Dsonar.projectName=Multi-Tier-BankApp-CI \
+                                -Dsonar.projectKey=Multi-Tier-BankApp-CI
+                            '''
+                        }
+                    }
+                }
+
+                stage('OWASP SCAN') {
+                    when { expression { params.RUN_OWASP } }
+                    steps {
+                        dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'DP-check'
+                        dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                    }
+                }
+
+                stage('Create docker image') {
+                    when { expression { params.RUN_DOCKER_BUILD } }
+                    steps {
+                        withDockerRegistry(credentialsId: 'dockerhub', url: 'https://index.docker.io/v1/') {
+                            sh 'docker build -t ashu290996/bankapp:latest .'
+                            sh 'docker push ashu290996/bankapp:latest'
+                        }
+                    }
+                }
+
+                stage('RUN TRIVY') {
+                    when { expression { params.RUN_TRIVY } }
+                    steps {
+                        sh 'trivy image --format table -o image.html ashu290996/bankapp:latest'
+                    }
                 }
             }
         }
-        stage('OWASP SCAN') {
-            when { expression { params.RUN_OWASP } }
-            steps {
-                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'DP-check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-            }
-        }
-        stage('Create docker image')
-        {
-            /* groovylint-disable-next-line SpaceAfterClosingBrace */
-            when { expression {params.RUN_DOCKER_BUILD}}
-            steps {
-            withDockerRegistry(credentialsId: 'dockerhub', url: 'https://index.docker.io/v1/') {
-                sh 'docker build -t ashu290996/bankapp:latest .'
-                sh 'docker push ashu290996/bankapp:latest' }
-            }
-        }
-        stage('RUN TRIVY')
-        {
-            /* groovylint-disable-next-line SpaceAfterClosingBrace */
-            when { expression {params.RUN_TRIVY}}
-            steps
-            {
-                sh ' trivy image --format table -o image.html ashu290996/bankapp:latest'
-            }
-        }
 
-        stage('Git checkout') {
+        stage('Git checkout1') {
             when { expression { params.RUN_GIT_CHECKOUT1 } } 
             steps {
            git branch: 'master', credentialsId: 'github-login', url: 'https://github.com/ashu290996/Multi-Tier-BankApp-CD.git'
