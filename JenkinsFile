@@ -30,99 +30,173 @@ pipeline {
         stage('Git checkout') {
             when { expression { params.RUN_GIT_CHECKOUT } }
             steps {
-                git branch: 'master',
-                    credentialsId: 'github-login',
-                    url: 'https://github.com/ashu290996/Multi-Tier-BankApp-CI.git'
+                script {
+                    try {
+                        git branch: 'master',
+                            credentialsId: 'github-login',
+                            url: 'https://github.com/ashu290996/Multi-Tier-BankApp-CI.git'
+                    } catch (Exception e) {
+                        echo "Git checkout failed: ${e.getMessage()}"
+                        error("Stopping pipeline due to Git checkout failure")
+                    }
+                }
             }
         }
 
         stage('Set Build Version') {
             steps {
-                sh """
-                mvn versions:set \
-                  -DnewVersion=${APP_VERSION} \
-                  -DgenerateBackupPoms=false
-                """
+                script {
+                    try {
+                        sh """
+                        mvn versions:set \
+                          -DnewVersion=${APP_VERSION} \
+                          -DgenerateBackupPoms=false
+                        """
+                    } catch (Exception e) {
+                        echo "Set Build Version failed: ${e.getMessage()}"
+                        error("Stopping pipeline due to version set failure")
+                    }
+                }
             }
         }
 
         stage('MVN compile') {
             when { expression { params.RUN_MVN_COMPILE } }
             steps {
-                sh "mvn compile"
+                script {
+                    try {
+                        sh "mvn compile"
+                    } catch (Exception e) {
+                        echo "MVN compile failed: ${e.getMessage()}"
+                        error("Stopping pipeline due to compile failure")
+                    }
+                }
             }
         }
 
         stage('MVN test') {
             when { expression { params.RUN_MVN_TEST } }
             steps {
-                sh "mvn test"
+                script {
+                    try {
+                        sh "mvn test"
+                    } catch (Exception e) {
+                        echo "MVN test failed: ${e.getMessage()}"
+                        currentBuild.result = 'UNSTABLE'
+                        // Continue pipeline even if tests fail
+                    }
+                }
             }
         }
 
         stage('MVN package') {
             when { expression { params.RUN_MVN_PACKAGE } }
             steps {
-                sh "mvn clean package -DskipTests=true"
+                script {
+                    try {
+                        sh "mvn clean package -DskipTests=true"
+                    } catch (Exception e) {
+                        echo "MVN package failed: ${e.getMessage()}"
+                        error("Stopping pipeline due to package failure")
+                    }
+                }
             }
         }
 
         stage('Nexus Upload') {
             when { expression { params.RUN_NEXUS_UPLOAD } }
             steps {
-                withMaven(
-                    globalMavenSettingsConfig: 'Global-maven-setting',
-                    jdk: 'jdk21',
-                    maven: 'maven3',
-                    traceability: true
-                ) {
-                    sh "mvn deploy -DskipTests=true"
+                script {
+                    try {
+                        withMaven(
+                            globalMavenSettingsConfig: 'Global-maven-setting',
+                            jdk: 'jdk21',
+                            maven: 'maven3',
+                            traceability: true
+                        ) {
+                            sh "mvn deploy -DskipTests=true"
+                        }
+                    } catch (Exception e) {
+                        echo "Nexus upload failed: ${e.getMessage()}"
+                        currentBuild.result = 'UNSTABLE'
+                        // Continue pipeline even if Nexus upload fails
+                    }
                 }
             }
         }
 
-        parallel {
+        stage('Parallel Scans & Docker') {
+            parallel {
 
-            stage('Sonar Analysis') {
-                when { expression { params.RUN_SONAR } }
-                steps {
-                    withSonarQubeEnv('sonar-scanner') {
-                        sh """
-                        ${SCANNER_HOME}/bin/sonar-scanner \
-                          -Dsonar.java.binaries=. \
-                          -Dsonar.projectName=Multi-Tier-BankApp-CI \
-                          -Dsonar.projectKey=Multi-Tier-BankApp-CI
-                        """
+                stage('Sonar Analysis') {
+                    when { expression { params.RUN_SONAR } }
+                    steps {
+                        script {
+                            try {
+                                withSonarQubeEnv('sonar-scanner') {
+                                    sh """
+                                    ${SCANNER_HOME}/bin/sonar-scanner \
+                                      -Dsonar.java.binaries=. \
+                                      -Dsonar.projectName=Multi-Tier-BankApp-CI \
+                                      -Dsonar.projectKey=Multi-Tier-BankApp-CI
+                                    """
+                                }
+                            } catch (Exception e) {
+                                echo "SonarQube analysis failed: ${e.getMessage()}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
                     }
                 }
-            }
 
-            stage('OWASP Scan') {
-                when { expression { params.RUN_OWASP } }
-                steps {
-                    dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'DP-check'
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
-            }
-
-            stage('Create Docker Image') {
-                when { expression { params.RUN_DOCKER_BUILD } }
-                steps {
-                    withDockerRegistry(credentialsId: 'dockerhub', url: 'https://index.docker.io/v1/') {
-                        sh """
-                        docker build -t ashu290996/bankapp:${APP_VERSION} .
-                        docker tag ashu290996/bankapp:${APP_VERSION} ashu290996/bankapp:latest
-                        docker push ashu290996/bankapp:${APP_VERSION}
-                        docker push ashu290996/bankapp:latest
-                        """
+                stage('OWASP Scan') {
+                    when { expression { params.RUN_OWASP } }
+                    steps {
+                        script {
+                            try {
+                                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'DP-check'
+                                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                            } catch (Exception e) {
+                                echo "OWASP scan failed: ${e.getMessage()}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
                     }
                 }
-            }
 
-            stage('Run Trivy') {
-                when { expression { params.RUN_TRIVY } }
-                steps {
-                    sh "trivy image --format table -o image.html ashu290996/bankapp:${APP_VERSION}"
+                stage('Create Docker Image') {
+                    when { expression { params.RUN_DOCKER_BUILD } }
+                    steps {
+                        script {
+                            try {
+                                withDockerRegistry(credentialsId: 'dockerhub', url: 'https://index.docker.io/v1/') {
+                                    sh """
+                                    docker build -t ashu290996/bankapp:${APP_VERSION} .
+                                    docker tag ashu290996/bankapp:${APP_VERSION} ashu290996/bankapp:latest
+                                    docker push ashu290996/bankapp:${APP_VERSION}
+                                    docker push ashu290996/bankapp:latest
+                                    """
+                                }
+                            } catch (Exception e) {
+                                echo "Docker build/push failed: ${e.getMessage()}"
+                                error("Stopping pipeline due to Docker failure")
+                            }
+                        }
+                    }
+                }
+
+                stage('Run Trivy') {
+                    when { expression { params.RUN_TRIVY } }
+                    steps {
+                        script {
+                            try {
+                                sh "trivy image --format table -o image.html ashu290996/bankapp:${APP_VERSION}"
+                            } catch (Exception e) {
+                                echo "Trivy scan failed: ${e.getMessage()}"
+                                currentBuild.result = 'UNSTABLE'
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -130,28 +204,64 @@ pipeline {
         stage('Git checkout CD') {
             when { expression { params.RUN_GIT_CHECKOUT1 } }
             steps {
-                git branch: 'master',
-                    credentialsId: 'github-login',
-                    url: 'https://github.com/ashu290996/Multi-Tier-BankApp-CD.git'
+                script {
+                    try {
+                        git branch: 'master',
+                            credentialsId: 'github-login',
+                            url: 'https://github.com/ashu290996/Multi-Tier-BankApp-CD.git'
+                    } catch (Exception e) {
+                        echo "Git checkout CD failed: ${e.getMessage()}"
+                        error("Stopping pipeline due to Git checkout failure")
+                    }
+                }
             }
         }
 
         stage('Deploy to Kubernetes') {
             when { expression { params.RUN_DEPLOY_CONTAINER } }
             steps {
-                withKubeConfig(
-                    credentialsId: 'k8-prod-token',
-                    namespace: 'prod',
-                    serverUrl: 'https://bankapp-dns-prn5mjxo.hcp.eastus.azmk8s.io:443'
-                ) {
-                    sh """
-                    kubectl apply -f bankapp/bankapp-ds.yml -n prod
-                    kubectl apply -f database/database-ds.yml -n prod
-                    kubectl set image deployment bankapp-deployment \
-                      bankapp=ashu290996/bankapp:${APP_VERSION} -n prod
-                    """
+                script {
+                    try {
+                        withKubeConfig(
+                            credentialsId: 'k8-prod-token',
+                            namespace: 'prod',
+                            serverUrl: 'https://bankapp-dns-prn5mjxo.hcp.eastus.azmk8s.io:443'
+                        ) {
+                            sh """
+                            kubectl apply -f bankapp/bankapp-ds.yml -n prod
+                            kubectl apply -f database/database-ds.yml -n prod
+                            kubectl set image deployment bankapp-deployment \
+                              bankapp=ashu290996/bankapp:${APP_VERSION} -n prod
+                            """
+                        }
+                    } catch (Exception e) {
+                        echo "Kubernetes deployment failed: ${e.getMessage()}"
+                        error("Stopping pipeline due to deployment failure")
+                    }
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            echo "Pipeline finished with status: ${currentBuild.currentResult}"
+            // Clean up workspace
+            cleanWs()
+        }
+        success {
+            echo "Pipeline completed successfully!"
+            // Add notification here (email, Slack, etc.)
+            // slackSend channel: '#deployments', message: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        }
+        failure {
+            echo "Pipeline failed!"
+            // Add notification here
+            // slackSend channel: '#deployments', color: 'danger', message: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+        }
+        unstable {
+            echo "Pipeline completed with warnings (UNSTABLE)"
+            // Add notification here
         }
     }
 }
