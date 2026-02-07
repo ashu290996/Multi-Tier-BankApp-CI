@@ -106,7 +106,7 @@ stages:
     steps:
     - checkout: self
 
-    - task: SonarQubePrepare@5
+    - task: SonarQubePrepare@8
       inputs:
         SonarQube: 'sonar-service-connection'
         scannerMode: 'CLI'
@@ -117,9 +117,9 @@ stages:
         extraProperties: |
           sonar.java.binaries=target
 
-    - task: SonarQubeAnalyze@5
+    - task: SonarQubeAnalyze@8
 
-    - task: SonarQubePublish@5
+    - task: SonarQubePublish@8
       inputs:
         pollingTimeoutSec: '300'
 
