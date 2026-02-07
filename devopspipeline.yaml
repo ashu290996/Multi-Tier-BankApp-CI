@@ -32,12 +32,12 @@ stages:
     #     versionSpec: '21'
     #     jdkArchitectureOption: 'x64'
     #     jdkSourceOption: 'PreInstalled'
-    - task: JavaToolInstaller@0
-      displayName: 'Install JDK 21'
-      inputs:
-        versionSpec: '21'
-        jdkArchitectureOption: 'x64'
-        jdkSourceOption: 'AzureStorage'
+    # - task: JavaToolInstaller@0
+    #   displayName: 'Install JDK 21'
+    #   inputs:
+    #     versionSpec: '21'
+    #     jdkArchitectureOption: 'x64'
+    #     jdkSourceOption: 'AzureStorage'
         
     - task: Bash@3
       displayName: 'Set Maven Version'
@@ -67,11 +67,19 @@ stages:
         testResultsFormat: 'JUnit'
         testResultsFiles: '**/surefire-reports/*.xml'
 
-    - task: Bash@3
-      displayName: 'Maven Package'
+    # - task: Bash@3
+    #   displayName: 'Maven Package'
+    #   inputs:
+    #     targetType: 'inline'
+    #     script: mvn clean package -DskipTests=true
+    - task: Maven@4
+      displayName: 'Build with Maven (JDK 21)'
       inputs:
-        targetType: 'inline'
-        script: mvn clean package -DskipTests=true
+       mavenPomFile: 'pom.xml'
+       goals: 'clean package'
+       options: '-DskipTests'
+       javaHomeOption: 'JDKVersion'
+       jdkVersionOption: '21'
 
     - task: PublishBuildArtifacts@1
       displayName: 'Publish Artifact'
