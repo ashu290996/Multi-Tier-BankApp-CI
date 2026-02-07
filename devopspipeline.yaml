@@ -128,7 +128,7 @@ stages:
         cliProjectName: 'Multi-Tier-BankApp-CI'
         cliSources: '.'
         extraProperties: |
-          sonar.java.binaries=target
+          sonar.java.binaries=.
     - task: SonarQubeAnalyze@8
 
     - task: SonarQubePublish@8
