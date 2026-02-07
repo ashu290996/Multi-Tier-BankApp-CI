@@ -212,7 +212,6 @@ stages:
 # ==================== CLEANUP ====================
 - stage: Cleanup
   displayName: 'Cleanup & Notify'
-  dependsOn: Deploy
   condition: always()
   jobs:
   - job: Notify
