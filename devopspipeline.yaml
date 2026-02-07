@@ -26,13 +26,19 @@ stages:
     - checkout: self
       displayName: 'Checkout Source'
 
+    # - task: JavaToolInstaller@0
+    #   displayName: 'Install JDK 21'
+    #   inputs:
+    #     versionSpec: '21'
+    #     jdkArchitectureOption: 'x64'
+    #     jdkSourceOption: 'PreInstalled'
     - task: JavaToolInstaller@0
       displayName: 'Install JDK 21'
       inputs:
         versionSpec: '21'
         jdkArchitectureOption: 'x64'
-        jdkSourceOption: 'PreInstalled'
-
+        jdkSourceOption: 'AzureStorage'
+        
     - task: Bash@3
       displayName: 'Set Maven Version'
       inputs:
