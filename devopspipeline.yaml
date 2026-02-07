@@ -175,7 +175,13 @@ stages:
           #     scanPath: '$(Build.SourcesDirectory)'
           #     format: 'HTML,XML'
           #     failOnCVSS: '8'
-
+          - task: dependency-check-build-task@6
+            inputs:
+             projectName: 'Multi-Tier-BankApp'
+             scanPath: '$(Build.SourcesDirectory)'
+             format: 'HTML'
+             uploadReports: true
+             failOnCVSS: '8'
           - task: PublishBuildArtifacts@1
             displayName: 'Publish OWASP Report'
             inputs:
