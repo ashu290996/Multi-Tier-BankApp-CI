@@ -176,39 +176,39 @@ stages:
           trivy image $(DOCKER_IMAGE):$(APP_VERSION)
 
 # ==================== DEPLOY STAGE ====================
-- stage: Deploy
-  displayName: 'Deploy to Kubernetes'
-  dependsOn:
-    - SecurityScans
-    - NexusUpload
-  jobs:
-  - deployment: DeployToK8s
-    environment: 'production'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
+# - stage: Deploy
+#   displayName: 'Deploy to Kubernetes'
+#   dependsOn:
+#     - SecurityScans
+#     - NexusUpload
+#   jobs:
+#   - deployment: DeployToK8s
+#     environment: 'production'
+#     strategy:
+#       runOnce:
+#         deploy:
+#           steps:
 
-          - checkout: git://YourProject/Multi-Tier-BankApp-CD@master
+#           - checkout: git://YourProject/Multi-Tier-BankApp-CD@master
 
-          - task: KubernetesManifest@0
-            displayName: 'Deploy App'
-            inputs:
-              action: deploy
-              kubernetesServiceConnection: 'k8s-prod-connection'
-              namespace: '$(K8S_NAMESPACE)'
-              manifests: bankapp/bankapp-ds.yml
+#           - task: KubernetesManifest@0
+#             displayName: 'Deploy App'
+#             inputs:
+#               action: deploy
+#               kubernetesServiceConnection: 'k8s-prod-connection'
+#               namespace: '$(K8S_NAMESPACE)'
+#               manifests: bankapp/bankapp-ds.yml
 
-          - task: Kubernetes@1
-            displayName: 'Update Image'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'k8s-prod-connection'
-              namespace: '$(K8S_NAMESPACE)'
-              command: set
-              arguments: >
-                image deployment/bankapp-deployment
-                bankapp=$(DOCKER_IMAGE):$(APP_VERSION)
+#           - task: Kubernetes@1
+#             displayName: 'Update Image'
+#             inputs:
+#               connectionType: 'Kubernetes Service Connection'
+#               kubernetesServiceEndpoint: 'k8s-prod-connection'
+#               namespace: '$(K8S_NAMESPACE)'
+#               command: set
+#               arguments: >
+#                 image deployment/bankapp-deployment
+#                 bankapp=$(DOCKER_IMAGE):$(APP_VERSION)
 
 # ==================== CLEANUP ====================
 - stage: Cleanup
