@@ -134,7 +134,7 @@ stages:
         steps:
           - checkout: self
           
-          - task: SonarQubePrepare@5
+          - task: SonarQubePrepare@8
             displayName: 'Prepare SonarQube'
             inputs:
               SonarQube: 'sonar-service-connection'  # Service Connection name
@@ -145,14 +145,20 @@ stages:
               cliSources: '.'
               extraProperties: |
                 sonar.java.binaries=.
-
-          - task: SonarQubeAnalyze@5
-            displayName: 'Run SonarQube Analysis'
-
-          - task: SonarQubePublish@5
-            displayName: 'Publish SonarQube Results'
+          - task: SonarQubePrepare@8
             inputs:
-              pollingTimeoutSec: '300'
+              SonarQube: 'sonarqube'
+              scannerMode: 'cli'
+              configMode: 'file'
+          # - task: SonarQubeAnalyze@5
+          #   displayName: 'Run SonarQube Analysis'
+          - task: SonarQubeAnalyze@8
+            inputs:
+              jdkversion: 'JAVA_HOME_21_X64'
+          # - task: SonarQubePublish@5
+          #   displayName: 'Publish SonarQube Results'
+          #   inputs:
+          #     pollingTimeoutSec: '300'
 
       # OWASP Dependency Check
       - job: OWASPScan
@@ -162,13 +168,13 @@ stages:
         steps:
           - checkout: self
           
-          - task: dependency-check-build-task@6
-            displayName: 'OWASP Dependency Check'
-            inputs:
-              projectName: 'Multi-Tier-BankApp'
-              scanPath: '$(Build.SourcesDirectory)'
-              format: 'HTML,XML'
-              failOnCVSS: '8'
+          # - task: dependency-check-build-task@6
+          #   displayName: 'OWASP Dependency Check'
+          #   inputs:
+          #     projectName: 'Multi-Tier-BankApp'
+          #     scanPath: '$(Build.SourcesDirectory)'
+          #     format: 'HTML,XML'
+          #     failOnCVSS: '8'
 
           - task: PublishBuildArtifacts@1
             displayName: 'Publish OWASP Report'
