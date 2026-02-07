@@ -310,4 +310,3 @@ stages:
           #     connection: 'slack-connection'
           #     channel: '#deployments'
           #     message: 'Pipeline $(Build.BuildId) completed with status: $(Agent.JobStatus)'# azure-pipelines.yml
-
