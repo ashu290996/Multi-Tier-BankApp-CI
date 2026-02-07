@@ -9,51 +9,7 @@ pool:
   name: default
 
 # Parameters (equivalent to Jenkins booleanParam)
-parameters:
-  - name: RUN_GIT_CHECKOUT
-    displayName: 'Run Git checkout stage'
-    type: boolean
-    default: true
-  - name: RUN_MVN_COMPILE
-    displayName: 'Run MVN Compile stage'
-    type: boolean
-    default: true
-  - name: RUN_MVN_TEST
-    displayName: 'Run MVN Test stage'
-    type: boolean
-    default: true
-  - name: RUN_MVN_PACKAGE
-    displayName: 'Run MVN package stage'
-    type: boolean
-    default: true
-  - name: RUN_NEXUS_UPLOAD
-    displayName: 'Run Nexus upload stage'
-    type: boolean
-    default: true
-  - name: RUN_SONAR
-    displayName: 'Run SonarQube analysis'
-    type: boolean
-    default: true
-  - name: RUN_OWASP
-    displayName: 'Run OWASP scan'
-    type: boolean
-    default: true
-  - name: RUN_DOCKER_BUILD
-    displayName: 'Build and push Docker images'
-    type: boolean
-    default: true
-  - name: RUN_TRIVY
-    displayName: 'Run Trivy scan'
-    type: boolean
-    default: true
-  - name: RUN_GIT_CHECKOUT_CD
-    displayName: 'Run Git checkout CD stage'
-    type: boolean
-    default: true
-  - name: RUN_DEPLOY_CONTAINER
-    displayName: 'Run Deploy to container'
-    type: boolean
-    default: true
+
 
 # Variables
 variables:
@@ -85,7 +41,7 @@ stages:
 
           # Git Checkout CI Repo
           - checkout: self
-            condition: eq('${{ parameters.RUN_GIT_CHECKOUT }}', true)
+ #           condition: eq('${{ parameters.RUN_GIT_CHECKOUT }}', true)
             displayName: 'Git Checkout CI'
 
           # Set Build Version
@@ -101,7 +57,7 @@ stages:
           # MVN Compile
           - task: Bash@3
             displayName: 'MVN Compile'
-            condition: eq('${{ parameters.RUN_MVN_COMPILE }}', true)
+ #           condition: eq('${{ parameters.RUN_MVN_COMPILE }}', true)
             inputs:
               targetType: 'inline'
               script: |
@@ -110,7 +66,7 @@ stages:
           # MVN Test
           - task: Bash@3
             displayName: 'MVN Test'
-            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+ #           condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
             continueOnError: true  # Continue even if tests fail
             inputs:
               targetType: 'inline'
@@ -120,7 +76,7 @@ stages:
           # Publish Test Results
           - task: PublishTestResults@2
             displayName: 'Publish Test Results'
-            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+ #           condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
             inputs:
               testResultsFormat: 'JUnit'
               testResultsFiles: '**/surefire-reports/*.xml'
@@ -128,7 +84,7 @@ stages:
           # MVN Package
           - task: Bash@3
             displayName: 'MVN Package'
-            condition: eq('${{ parameters.RUN_MVN_PACKAGE }}', true)
+ #           condition: eq('${{ parameters.RUN_MVN_PACKAGE }}', true)
             inputs:
               targetType: 'inline'
               script: |
@@ -145,7 +101,7 @@ stages:
   - stage: NexusUpload
     displayName: 'Nexus Upload'
     dependsOn: Build
-    condition: eq('${{ parameters.RUN_NEXUS_UPLOAD }}', true)
+#    condition: eq('${{ parameters.RUN_NEXUS_UPLOAD }}', true)
     jobs:
       - job: NexusUploadJob
         displayName: 'Upload to Nexus'
@@ -173,7 +129,7 @@ stages:
       # SonarQube Analysis
       - job: SonarAnalysis
         displayName: 'SonarQube Analysis'
-        condition: eq('${{ parameters.RUN_SONAR }}', true)
+#        condition: eq('${{ parameters.RUN_SONAR }}', true)
         continueOnError: true
         steps:
           - checkout: self
@@ -201,7 +157,7 @@ stages:
       # OWASP Dependency Check
       - job: OWASPScan
         displayName: 'OWASP Dependency Check'
-        condition: eq('${{ parameters.RUN_OWASP }}', true)
+ #       condition: eq('${{ parameters.RUN_OWASP }}', true)
         continueOnError: true
         steps:
           - checkout: self
@@ -223,7 +179,7 @@ stages:
       # Docker Build & Push
       - job: DockerBuild
         displayName: 'Docker Build & Push'
-        condition: eq('${{ parameters.RUN_DOCKER_BUILD }}', true)
+ #       condition: eq('${{ parameters.RUN_DOCKER_BUILD }}', true)
         steps:
           - checkout: self
           
@@ -251,7 +207,7 @@ stages:
       # Trivy Scan
       - job: TrivyScan
         displayName: 'Trivy Security Scan'
-        condition: eq('${{ parameters.RUN_TRIVY }}', true)
+ #       condition: eq('${{ parameters.RUN_TRIVY }}', true)
         dependsOn: DockerBuild
         continueOnError: true
         steps:
@@ -285,7 +241,7 @@ stages:
     dependsOn: 
       - SecurityScans
       - NexusUpload
-    condition: eq('${{ parameters.RUN_DEPLOY_CONTAINER }}', true)
+  #  condition: eq('${{ parameters.RUN_DEPLOY_CONTAINER }}', true)
     jobs:
       - deployment: DeployToK8s
         displayName: 'Deploy to AKS'
@@ -296,7 +252,7 @@ stages:
               steps:
                 # Checkout CD Repo
                 - checkout: git://YourProject/Multi-Tier-BankApp-CD@master
-                  condition: eq('${{ parameters.RUN_GIT_CHECKOUT_CD }}', true)
+  #                condition: eq('${{ parameters.RUN_GIT_CHECKOUT_CD }}', true)
                   displayName: 'Checkout CD Repo'
 
                 # OR use repository resource
@@ -440,7 +396,7 @@ stages:
 
           # Git Checkout CI Repo
           - checkout: self
-            condition: eq('${{ parameters.RUN_GIT_CHECKOUT }}', true)
+  #          condition: eq('${{ parameters.RUN_GIT_CHECKOUT }}', true)
             displayName: 'Git Checkout CI'
 
           # Set Build Version
@@ -456,7 +412,7 @@ stages:
           # MVN Compile
           - task: Bash@3
             displayName: 'MVN Compile'
-            condition: eq('${{ parameters.RUN_MVN_COMPILE }}', true)
+  #          condition: eq('${{ parameters.RUN_MVN_COMPILE }}', true)
             inputs:
               targetType: 'inline'
               script: |
@@ -465,7 +421,7 @@ stages:
           # MVN Test
           - task: Bash@3
             displayName: 'MVN Test'
-            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+  #          condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
             continueOnError: true  # Continue even if tests fail
             inputs:
               targetType: 'inline'
@@ -475,7 +431,7 @@ stages:
           # Publish Test Results
           - task: PublishTestResults@2
             displayName: 'Publish Test Results'
-            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+ #           condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
             inputs:
               testResultsFormat: 'JUnit'
               testResultsFiles: '**/surefire-reports/*.xml'
@@ -483,7 +439,7 @@ stages:
           # MVN Package
           - task: Bash@3
             displayName: 'MVN Package'
-            condition: eq('${{ parameters.RUN_MVN_PACKAGE }}', true)
+  #          condition: eq('${{ parameters.RUN_MVN_PACKAGE }}', true)
             inputs:
               targetType: 'inline'
               script: |
@@ -500,7 +456,7 @@ stages:
   - stage: NexusUpload
     displayName: 'Nexus Upload'
     dependsOn: Build
-    condition: eq('${{ parameters.RUN_NEXUS_UPLOAD }}', true)
+ #   condition: eq('${{ parameters.RUN_NEXUS_UPLOAD }}', true)
     jobs:
       - job: NexusUploadJob
         displayName: 'Upload to Nexus'
@@ -528,7 +484,7 @@ stages:
       # SonarQube Analysis
       - job: SonarAnalysis
         displayName: 'SonarQube Analysis'
-        condition: eq('${{ parameters.RUN_SONAR }}', true)
+ #       condition: eq('${{ parameters.RUN_SONAR }}', true)
         continueOnError: true
         steps:
           - checkout: self
@@ -556,7 +512,7 @@ stages:
       # OWASP Dependency Check
       - job: OWASPScan
         displayName: 'OWASP Dependency Check'
-        condition: eq('${{ parameters.RUN_OWASP }}', true)
+ #       condition: eq('${{ parameters.RUN_OWASP }}', true)
         continueOnError: true
         steps:
           - checkout: self
@@ -578,7 +534,7 @@ stages:
       # Docker Build & Push
       - job: DockerBuild
         displayName: 'Docker Build & Push'
-        condition: eq('${{ parameters.RUN_DOCKER_BUILD }}', true)
+ #       condition: eq('${{ parameters.RUN_DOCKER_BUILD }}', true)
         steps:
           - checkout: self
           
@@ -606,7 +562,7 @@ stages:
       # Trivy Scan
       - job: TrivyScan
         displayName: 'Trivy Security Scan'
-        condition: eq('${{ parameters.RUN_TRIVY }}', true)
+ #       condition: eq('${{ parameters.RUN_TRIVY }}', true)
         dependsOn: DockerBuild
         continueOnError: true
         steps:
@@ -640,7 +596,7 @@ stages:
     dependsOn: 
       - SecurityScans
       - NexusUpload
-    condition: eq('${{ parameters.RUN_DEPLOY_CONTAINER }}', true)
+ #   condition: eq('${{ parameters.RUN_DEPLOY_CONTAINER }}', true)
     jobs:
       - deployment: DeployToK8s
         displayName: 'Deploy to AKS'
@@ -651,7 +607,7 @@ stages:
               steps:
                 # Checkout CD Repo
                 - checkout: git://YourProject/Multi-Tier-BankApp-CD@master
-                  condition: eq('${{ parameters.RUN_GIT_CHECKOUT_CD }}', true)
+ #                 condition: eq('${{ parameters.RUN_GIT_CHECKOUT_CD }}', true)
                   displayName: 'Checkout CD Repo'
 
                 # OR use repository resource
