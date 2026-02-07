@@ -108,7 +108,7 @@ stages:
 
     - task: SonarQubePrepare@8
       inputs:
-        SonarQube: 'sonar-service-connection'
+        SonarQube: 'sonarqube'
         scannerMode: 'CLI'
         configMode: 'manual'
         cliProjectKey: 'Multi-Tier-BankApp-CI'
@@ -116,7 +116,6 @@ stages:
         cliSources: '.'
         extraProperties: |
           sonar.java.binaries=target
-
     - task: SonarQubeAnalyze@8
 
     - task: SonarQubePublish@8
