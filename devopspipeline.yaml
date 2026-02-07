@@ -2,7 +2,6 @@
 trigger:
   branches:
     include:
-      - main
       - master
 
 pool:
@@ -79,7 +78,7 @@ stages:
        goals: 'clean package'
        options: '-DskipTests'
        javaHomeOption: 'JDKVersion'
-       jdkVersionOption: '21'
+#       jdkVersionOption: '21'
 
     - task: PublishBuildArtifacts@1
       displayName: 'Publish Artifact'
@@ -105,7 +104,7 @@ stages:
         goals: 'deploy'
         options: '-DskipTests'
         javaHomeOption: 'JDKVersion'
-        jdkVersionOption: '21'
+#        jdkVersionOption: '21'
         mavenAuthenticateFeed: true
 
 # ==================== SECURITY & DOCKER STAGE ====================
