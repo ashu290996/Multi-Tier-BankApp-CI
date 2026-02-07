@@ -1,1 +1,711 @@
+# azure-pipelines.yml
+trigger:
+  branches:
+    include:
+      - master
+      - main
 
+pool:
+  name: default
+
+# Parameters (equivalent to Jenkins booleanParam)
+parameters:
+  - name: RUN_GIT_CHECKOUT
+    displayName: 'Run Git checkout stage'
+    type: boolean
+    default: true
+  - name: RUN_MVN_COMPILE
+    displayName: 'Run MVN Compile stage'
+    type: boolean
+    default: true
+  - name: RUN_MVN_TEST
+    displayName: 'Run MVN Test stage'
+    type: boolean
+    default: true
+  - name: RUN_MVN_PACKAGE
+    displayName: 'Run MVN package stage'
+    type: boolean
+    default: true
+  - name: RUN_NEXUS_UPLOAD
+    displayName: 'Run Nexus upload stage'
+    type: boolean
+    default: true
+  - name: RUN_SONAR
+    displayName: 'Run SonarQube analysis'
+    type: boolean
+    default: true
+  - name: RUN_OWASP
+    displayName: 'Run OWASP scan'
+    type: boolean
+    default: true
+  - name: RUN_DOCKER_BUILD
+    displayName: 'Build and push Docker images'
+    type: boolean
+    default: true
+  - name: RUN_TRIVY
+    displayName: 'Run Trivy scan'
+    type: boolean
+    default: true
+  - name: RUN_GIT_CHECKOUT_CD
+    displayName: 'Run Git checkout CD stage'
+    type: boolean
+    default: true
+  - name: RUN_DEPLOY_CONTAINER
+    displayName: 'Run Deploy to container'
+    type: boolean
+    default: true
+
+# Variables
+variables:
+  APP_VERSION: '1.0.$(Build.BuildId)'
+  DOCKER_IMAGE: 'ashu290996/bankapp'
+  K8S_NAMESPACE: 'prod'
+
+stages:
+  # ==================== BUILD STAGE ====================
+  - stage: Build
+    displayName: 'Build Stage'
+    jobs:
+      - job: BuildJob
+        displayName: 'Build and Package'
+        steps:
+          # Install Java 21
+          - task: JavaToolInstaller@0
+            displayName: 'Install JDK 21'
+            inputs:
+              versionSpec: '21'
+              jdkArchitectureOption: 'x64'
+              jdkSourceOption: 'PreInstalled'
+
+          # Install Maven
+          - task: Maven@4
+            displayName: 'Install Maven'
+            inputs:
+              mavenVersionOption: 'Default'
+
+          # Git Checkout CI Repo
+          - checkout: self
+            condition: eq('${{ parameters.RUN_GIT_CHECKOUT }}', true)
+            displayName: 'Git Checkout CI'
+
+          # Set Build Version
+          - task: Bash@3
+            displayName: 'Set Build Version'
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn versions:set \
+                  -DnewVersion=$(APP_VERSION) \
+                  -DgenerateBackupPoms=false
+
+          # MVN Compile
+          - task: Bash@3
+            displayName: 'MVN Compile'
+            condition: eq('${{ parameters.RUN_MVN_COMPILE }}', true)
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn compile
+
+          # MVN Test
+          - task: Bash@3
+            displayName: 'MVN Test'
+            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+            continueOnError: true  # Continue even if tests fail
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn test
+
+          # Publish Test Results
+          - task: PublishTestResults@2
+            displayName: 'Publish Test Results'
+            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/surefire-reports/*.xml'
+
+          # MVN Package
+          - task: Bash@3
+            displayName: 'MVN Package'
+            condition: eq('${{ parameters.RUN_MVN_PACKAGE }}', true)
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn clean package -DskipTests=true
+
+          # Publish Artifact
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Artifact'
+            inputs:
+              pathToPublish: '$(Build.SourcesDirectory)/target'
+              artifactName: 'drop'
+
+  # ==================== NEXUS UPLOAD STAGE ====================
+  - stage: NexusUpload
+    displayName: 'Nexus Upload'
+    dependsOn: Build
+    condition: eq('${{ parameters.RUN_NEXUS_UPLOAD }}', true)
+    jobs:
+      - job: NexusUploadJob
+        displayName: 'Upload to Nexus'
+        continueOnError: true
+        steps:
+          - checkout: self
+          
+          - task: Maven@4
+            displayName: 'Maven Deploy to Nexus'
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'deploy'
+              options: '-DskipTests=true'
+              mavenOptions: '-Xmx1024m'
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '1.21'
+              mavenAuthenticateFeed: true
+              publishJUnitResults: false
+
+  # ==================== PARALLEL SCANS STAGE ====================
+  - stage: SecurityScans
+    displayName: 'Security Scans & Docker Build'
+    dependsOn: Build
+    jobs:
+      # SonarQube Analysis
+      - job: SonarAnalysis
+        displayName: 'SonarQube Analysis'
+        condition: eq('${{ parameters.RUN_SONAR }}', true)
+        continueOnError: true
+        steps:
+          - checkout: self
+          
+          - task: SonarQubePrepare@5
+            displayName: 'Prepare SonarQube'
+            inputs:
+              SonarQube: 'sonar-service-connection'  # Service Connection name
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: 'Multi-Tier-BankApp-CI'
+              cliProjectName: 'Multi-Tier-BankApp-CI'
+              cliSources: '.'
+              extraProperties: |
+                sonar.java.binaries=.
+
+          - task: SonarQubeAnalyze@5
+            displayName: 'Run SonarQube Analysis'
+
+          - task: SonarQubePublish@5
+            displayName: 'Publish SonarQube Results'
+            inputs:
+              pollingTimeoutSec: '300'
+
+      # OWASP Dependency Check
+      - job: OWASPScan
+        displayName: 'OWASP Dependency Check'
+        condition: eq('${{ parameters.RUN_OWASP }}', true)
+        continueOnError: true
+        steps:
+          - checkout: self
+          
+          - task: dependency-check-build-task@6
+            displayName: 'OWASP Dependency Check'
+            inputs:
+              projectName: 'Multi-Tier-BankApp'
+              scanPath: '$(Build.SourcesDirectory)'
+              format: 'HTML,XML'
+              failOnCVSS: '8'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish OWASP Report'
+            inputs:
+              pathToPublish: '$(Build.SourcesDirectory)/dependency-check-report.html'
+              artifactName: 'owasp-report'
+
+      # Docker Build & Push
+      - job: DockerBuild
+        displayName: 'Docker Build & Push'
+        condition: eq('${{ parameters.RUN_DOCKER_BUILD }}', true)
+        steps:
+          - checkout: self
+          
+          - task: Docker@2
+            displayName: 'Build Docker Image'
+            inputs:
+              containerRegistry: 'dockerhub-connection'  # Service Connection
+              repository: '$(DOCKER_IMAGE)'
+              command: 'build'
+              Dockerfile: '**/Dockerfile'
+              tags: |
+                $(APP_VERSION)
+                latest
+
+          - task: Docker@2
+            displayName: 'Push Docker Image'
+            inputs:
+              containerRegistry: 'dockerhub-connection'
+              repository: '$(DOCKER_IMAGE)'
+              command: 'push'
+              tags: |
+                $(APP_VERSION)
+                latest
+
+      # Trivy Scan
+      - job: TrivyScan
+        displayName: 'Trivy Security Scan'
+        condition: eq('${{ parameters.RUN_TRIVY }}', true)
+        dependsOn: DockerBuild
+        continueOnError: true
+        steps:
+          - task: Bash@3
+            displayName: 'Install Trivy'
+            inputs:
+              targetType: 'inline'
+              script: |
+                sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+                wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+                echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+                sudo apt-get update
+                sudo apt-get install -y trivy
+
+          - task: Bash@3
+            displayName: 'Run Trivy Scan'
+            inputs:
+              targetType: 'inline'
+              script: |
+                trivy image --format table -o trivy-report.html $(DOCKER_IMAGE):$(APP_VERSION)
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Trivy Report'
+            inputs:
+              pathToPublish: 'trivy-report.html'
+              artifactName: 'trivy-report'
+
+  # ==================== DEPLOY STAGE ====================
+  - stage: Deploy
+    displayName: 'Deploy to Kubernetes'
+    dependsOn: 
+      - SecurityScans
+      - NexusUpload
+    condition: eq('${{ parameters.RUN_DEPLOY_CONTAINER }}', true)
+    jobs:
+      - deployment: DeployToK8s
+        displayName: 'Deploy to AKS'
+        environment: 'production'  # Creates approval gate
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # Checkout CD Repo
+                - checkout: git://YourProject/Multi-Tier-BankApp-CD@master
+                  condition: eq('${{ parameters.RUN_GIT_CHECKOUT_CD }}', true)
+                  displayName: 'Checkout CD Repo'
+
+                # OR use repository resource
+                # - checkout: BankAppCD
+
+                - task: KubernetesManifest@0
+                  displayName: 'Deploy BankApp'
+                  inputs:
+                    action: 'deploy'
+                    kubernetesServiceConnection: 'k8s-prod-connection'
+                    namespace: '$(K8S_NAMESPACE)'
+                    manifests: |
+                      bankapp/bankapp-ds.yml
+
+                - task: KubernetesManifest@0
+                  displayName: 'Deploy Database'
+                  inputs:
+                    action: 'deploy'
+                    kubernetesServiceConnection: 'k8s-prod-connection'
+                    namespace: '$(K8S_NAMESPACE)'
+                    manifests: |
+                      database/database-ds.yml
+
+                - task: Kubernetes@1
+                  displayName: 'Update Image Version'
+                  inputs:
+                    connectionType: 'Kubernetes Service Connection'
+                    kubernetesServiceEndpoint: 'k8s-prod-connection'
+                    namespace: '$(K8S_NAMESPACE)'
+                    command: 'set'
+                    arguments: 'image deployment bankapp-deployment bankapp=$(DOCKER_IMAGE):$(APP_VERSION)'
+
+# ==================== POST ACTIONS (Always Run) ====================
+  - stage: Cleanup
+    displayName: 'Cleanup & Notify'
+    dependsOn:
+      - Deploy
+    condition: always()
+    jobs:
+      - job: Notify
+        displayName: 'Send Notifications'
+        steps:
+          - task: Bash@3
+            displayName: 'Pipeline Status'
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "Pipeline finished!"
+                echo "Build ID: $(Build.BuildId)"
+                echo "App Version: $(APP_VERSION)"
+
+          # Optional: Slack Notification
+          # - task: SlackNotification@0
+          #   inputs:
+          #     connection: 'slack-connection'
+          #     channel: '#deployments'
+          #     message: 'Pipeline $(Build.BuildId) completed with status: $(Agent.JobStatus)'# azure-pipelines.yml
+trigger:
+  branches:
+    include:
+      - master
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+# Parameters (equivalent to Jenkins booleanParam)
+parameters:
+  - name: RUN_GIT_CHECKOUT
+    displayName: 'Run Git checkout stage'
+    type: boolean
+    default: true
+  - name: RUN_MVN_COMPILE
+    displayName: 'Run MVN Compile stage'
+    type: boolean
+    default: true
+  - name: RUN_MVN_TEST
+    displayName: 'Run MVN Test stage'
+    type: boolean
+    default: true
+  - name: RUN_MVN_PACKAGE
+    displayName: 'Run MVN package stage'
+    type: boolean
+    default: true
+  - name: RUN_NEXUS_UPLOAD
+    displayName: 'Run Nexus upload stage'
+    type: boolean
+    default: true
+  - name: RUN_SONAR
+    displayName: 'Run SonarQube analysis'
+    type: boolean
+    default: true
+  - name: RUN_OWASP
+    displayName: 'Run OWASP scan'
+    type: boolean
+    default: true
+  - name: RUN_DOCKER_BUILD
+    displayName: 'Build and push Docker images'
+    type: boolean
+    default: true
+  - name: RUN_TRIVY
+    displayName: 'Run Trivy scan'
+    type: boolean
+    default: true
+  - name: RUN_GIT_CHECKOUT_CD
+    displayName: 'Run Git checkout CD stage'
+    type: boolean
+    default: true
+  - name: RUN_DEPLOY_CONTAINER
+    displayName: 'Run Deploy to container'
+    type: boolean
+    default: true
+
+# Variables
+variables:
+  APP_VERSION: '1.0.$(Build.BuildId)'
+  DOCKER_IMAGE: 'ashu290996/bankapp'
+  K8S_NAMESPACE: 'prod'
+
+stages:
+  # ==================== BUILD STAGE ====================
+  - stage: Build
+    displayName: 'Build Stage'
+    jobs:
+      - job: BuildJob
+        displayName: 'Build and Package'
+        steps:
+          # Install Java 21
+          - task: JavaToolInstaller@0
+            displayName: 'Install JDK 21'
+            inputs:
+              versionSpec: '21'
+              jdkArchitectureOption: 'x64'
+              jdkSourceOption: 'PreInstalled'
+
+          # Install Maven
+          - task: Maven@4
+            displayName: 'Install Maven'
+            inputs:
+              mavenVersionOption: 'Default'
+
+          # Git Checkout CI Repo
+          - checkout: self
+            condition: eq('${{ parameters.RUN_GIT_CHECKOUT }}', true)
+            displayName: 'Git Checkout CI'
+
+          # Set Build Version
+          - task: Bash@3
+            displayName: 'Set Build Version'
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn versions:set \
+                  -DnewVersion=$(APP_VERSION) \
+                  -DgenerateBackupPoms=false
+
+          # MVN Compile
+          - task: Bash@3
+            displayName: 'MVN Compile'
+            condition: eq('${{ parameters.RUN_MVN_COMPILE }}', true)
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn compile
+
+          # MVN Test
+          - task: Bash@3
+            displayName: 'MVN Test'
+            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+            continueOnError: true  # Continue even if tests fail
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn test
+
+          # Publish Test Results
+          - task: PublishTestResults@2
+            displayName: 'Publish Test Results'
+            condition: eq('${{ parameters.RUN_MVN_TEST }}', true)
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/surefire-reports/*.xml'
+
+          # MVN Package
+          - task: Bash@3
+            displayName: 'MVN Package'
+            condition: eq('${{ parameters.RUN_MVN_PACKAGE }}', true)
+            inputs:
+              targetType: 'inline'
+              script: |
+                mvn clean package -DskipTests=true
+
+          # Publish Artifact
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Artifact'
+            inputs:
+              pathToPublish: '$(Build.SourcesDirectory)/target'
+              artifactName: 'drop'
+
+  # ==================== NEXUS UPLOAD STAGE ====================
+  - stage: NexusUpload
+    displayName: 'Nexus Upload'
+    dependsOn: Build
+    condition: eq('${{ parameters.RUN_NEXUS_UPLOAD }}', true)
+    jobs:
+      - job: NexusUploadJob
+        displayName: 'Upload to Nexus'
+        continueOnError: true
+        steps:
+          - checkout: self
+          
+          - task: Maven@4
+            displayName: 'Maven Deploy to Nexus'
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'deploy'
+              options: '-DskipTests=true'
+              mavenOptions: '-Xmx1024m'
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '1.21'
+              mavenAuthenticateFeed: true
+              publishJUnitResults: false
+
+  # ==================== PARALLEL SCANS STAGE ====================
+  - stage: SecurityScans
+    displayName: 'Security Scans & Docker Build'
+    dependsOn: Build
+    jobs:
+      # SonarQube Analysis
+      - job: SonarAnalysis
+        displayName: 'SonarQube Analysis'
+        condition: eq('${{ parameters.RUN_SONAR }}', true)
+        continueOnError: true
+        steps:
+          - checkout: self
+          
+          - task: SonarQubePrepare@5
+            displayName: 'Prepare SonarQube'
+            inputs:
+              SonarQube: 'sonar-service-connection'  # Service Connection name
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: 'Multi-Tier-BankApp-CI'
+              cliProjectName: 'Multi-Tier-BankApp-CI'
+              cliSources: '.'
+              extraProperties: |
+                sonar.java.binaries=.
+
+          - task: SonarQubeAnalyze@5
+            displayName: 'Run SonarQube Analysis'
+
+          - task: SonarQubePublish@5
+            displayName: 'Publish SonarQube Results'
+            inputs:
+              pollingTimeoutSec: '300'
+
+      # OWASP Dependency Check
+      - job: OWASPScan
+        displayName: 'OWASP Dependency Check'
+        condition: eq('${{ parameters.RUN_OWASP }}', true)
+        continueOnError: true
+        steps:
+          - checkout: self
+          
+          - task: dependency-check-build-task@6
+            displayName: 'OWASP Dependency Check'
+            inputs:
+              projectName: 'Multi-Tier-BankApp'
+              scanPath: '$(Build.SourcesDirectory)'
+              format: 'HTML,XML'
+              failOnCVSS: '8'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish OWASP Report'
+            inputs:
+              pathToPublish: '$(Build.SourcesDirectory)/dependency-check-report.html'
+              artifactName: 'owasp-report'
+
+      # Docker Build & Push
+      - job: DockerBuild
+        displayName: 'Docker Build & Push'
+        condition: eq('${{ parameters.RUN_DOCKER_BUILD }}', true)
+        steps:
+          - checkout: self
+          
+          - task: Docker@2
+            displayName: 'Build Docker Image'
+            inputs:
+              containerRegistry: 'dockerhub-connection'  # Service Connection
+              repository: '$(DOCKER_IMAGE)'
+              command: 'build'
+              Dockerfile: '**/Dockerfile'
+              tags: |
+                $(APP_VERSION)
+                latest
+
+          - task: Docker@2
+            displayName: 'Push Docker Image'
+            inputs:
+              containerRegistry: 'dockerhub-connection'
+              repository: '$(DOCKER_IMAGE)'
+              command: 'push'
+              tags: |
+                $(APP_VERSION)
+                latest
+
+      # Trivy Scan
+      - job: TrivyScan
+        displayName: 'Trivy Security Scan'
+        condition: eq('${{ parameters.RUN_TRIVY }}', true)
+        dependsOn: DockerBuild
+        continueOnError: true
+        steps:
+          - task: Bash@3
+            displayName: 'Install Trivy'
+            inputs:
+              targetType: 'inline'
+              script: |
+                sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+                wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+                echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+                sudo apt-get update
+                sudo apt-get install -y trivy
+
+          - task: Bash@3
+            displayName: 'Run Trivy Scan'
+            inputs:
+              targetType: 'inline'
+              script: |
+                trivy image --format table -o trivy-report.html $(DOCKER_IMAGE):$(APP_VERSION)
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Trivy Report'
+            inputs:
+              pathToPublish: 'trivy-report.html'
+              artifactName: 'trivy-report'
+
+  # ==================== DEPLOY STAGE ====================
+  - stage: Deploy
+    displayName: 'Deploy to Kubernetes'
+    dependsOn: 
+      - SecurityScans
+      - NexusUpload
+    condition: eq('${{ parameters.RUN_DEPLOY_CONTAINER }}', true)
+    jobs:
+      - deployment: DeployToK8s
+        displayName: 'Deploy to AKS'
+        environment: 'production'  # Creates approval gate
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # Checkout CD Repo
+                - checkout: git://YourProject/Multi-Tier-BankApp-CD@master
+                  condition: eq('${{ parameters.RUN_GIT_CHECKOUT_CD }}', true)
+                  displayName: 'Checkout CD Repo'
+
+                # OR use repository resource
+                # - checkout: BankAppCD
+
+                - task: KubernetesManifest@0
+                  displayName: 'Deploy BankApp'
+                  inputs:
+                    action: 'deploy'
+                    kubernetesServiceConnection: 'k8s-prod-connection'
+                    namespace: '$(K8S_NAMESPACE)'
+                    manifests: |
+                      bankapp/bankapp-ds.yml
+
+                - task: KubernetesManifest@0
+                  displayName: 'Deploy Database'
+                  inputs:
+                    action: 'deploy'
+                    kubernetesServiceConnection: 'k8s-prod-connection'
+                    namespace: '$(K8S_NAMESPACE)'
+                    manifests: |
+                      database/database-ds.yml
+
+                - task: Kubernetes@1
+                  displayName: 'Update Image Version'
+                  inputs:
+                    connectionType: 'Kubernetes Service Connection'
+                    kubernetesServiceEndpoint: 'k8s-prod-connection'
+                    namespace: '$(K8S_NAMESPACE)'
+                    command: 'set'
+                    arguments: 'image deployment bankapp-deployment bankapp=$(DOCKER_IMAGE):$(APP_VERSION)'
+
+# ==================== POST ACTIONS (Always Run) ====================
+  - stage: Cleanup
+    displayName: 'Cleanup & Notify'
+    dependsOn:
+      - Deploy
+    condition: always()
+    jobs:
+      - job: Notify
+        displayName: 'Send Notifications'
+        steps:
+          - task: Bash@3
+            displayName: 'Pipeline Status'
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "Pipeline finished!"
+                echo "Build ID: $(Build.BuildId)"
+                echo "App Version: $(APP_VERSION)"
+
+          # Optional: Slack Notification
+          # - task: SlackNotification@0
+          #   inputs:
+          #     connection: 'slack-connection'
+          #     channel: '#deployments'
+          #     message: 'Pipeline $(Build.BuildId) completed with status: $(Agent.JobStatus)'
