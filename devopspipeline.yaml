@@ -188,7 +188,7 @@ stages:
 
   - job: TrivyScan
     displayName: 'Trivy Image Scan'
-    dependsOn: DockerBuild
+#    dependsOn: DockerBuild
     continueOnError: true
     steps:
     - task: Bash@3
