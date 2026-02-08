@@ -80,6 +80,21 @@ stages:
        javaHomeOption: 'JDKVersion'
 #       jdkVersionOption: '21'
 
+    # - job: DockerBuild
+    #   displayName: 'Docker Build & Push'
+    #   steps:
+    #    - checkout: self
+     
+    - task: Docker@2
+      displayName: 'Build & Push Image'
+      inputs:
+        containerRegistry: 'ashudevops'
+        repository: '$(DOCKER_IMAGE)'
+        command: 'buildAndPush'
+        Dockerfile: 'Dockerfile'
+        tags: |
+          $(APP_VERSION)
+          latest
     - task: PublishBuildArtifacts@1
       displayName: 'Publish Artifact'
       inputs:
@@ -169,21 +184,7 @@ stages:
         uploadReports: true
         failOnCVSS: '8'
 
-  - job: DockerBuild
-    displayName: 'Docker Build & Push'
-    steps:
-    - checkout: self
-     
-    - task: Docker@2
-      displayName: 'Build & Push Image'
-      inputs:
-        containerRegistry: 'ashudevops'
-        repository: '$(DOCKER_IMAGE)'
-        command: 'buildAndPush'
-        Dockerfile: 'Dockerfile'
-        tags: |
-          $(APP_VERSION)
-          latest
+
 
   - job: TrivyScan
     displayName: 'Trivy Image Scan'
@@ -243,16 +244,16 @@ stages:
 #                 bankapp=$(DOCKER_IMAGE):$(APP_VERSION)
 
 # ==================== CLEANUP ====================
-- stage: Cleanup
-  displayName: 'Cleanup & Notify'
-  condition: always()
-  jobs:
-  - job: Notify
-    steps:
-    - task: Bash@3
-      inputs:
-        targetType: 'inline'
-        script: |
-          echo "Pipeline completed"
-          echo "Build ID: $(Build.BuildId)"
-          echo "Version: $(APP_VERSION)"
+# - stage: Cleanup
+#   displayName: 'Cleanup & Notify'
+#   condition: always()
+#   jobs:
+#   - job: Notify
+#     steps:
+#     - task: Bash@3
+#       inputs:
+#         targetType: 'inline'
+#         script: |
+#           echo "Pipeline completed"
+#           echo "Build ID: $(Build.BuildId)"
+#           echo "Version: $(APP_VERSION)"
