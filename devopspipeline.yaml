@@ -94,18 +94,18 @@ stages:
     #     downloadType: 'single'
     #     artifactName: 'drop'
     #     downloadPath: '$(System.ArtifactsDirectory)'
-    - task: DownloadBuildArtifacts@1
-      inputs:
-        buildType: 'specific'
-        project: 'fb3d3903-9126-41f4-9980-fa36e6a33778'
-        pipeline: '7'
-        specificBuildWithTriggering: true
-        buildVersionToDownload: 'latestFromBranch'
-        allowPartiallySucceededBuilds: true
-        branchName: 'refs/heads/master'
-        tags: 'bankapp-1.0.28.jar'
-        downloadType: 'specific'
-        downloadPath: '$(System.ArtifactsDirectory)'
+    # - task: DownloadBuildArtifacts@1
+    #   inputs:
+    #     buildType: 'specific'
+    #     project: 'fb3d3903-9126-41f4-9980-fa36e6a33778'
+    #     pipeline: '7'
+    #     specificBuildWithTriggering: true
+    #     buildVersionToDownload: 'latestFromBranch'
+    #     allowPartiallySucceededBuilds: true
+    #     branchName: 'refs/heads/master'
+    #     tags: 'bankapp-1.0.28.jar'
+    #     downloadType: 'specific'
+    #     downloadPath: '$(System.ArtifactsDirectory)'
 # ==================== NEXUS UPLOAD STAGE ====================
 - stage: NexusUpload
   displayName: 'Nexus Upload'
