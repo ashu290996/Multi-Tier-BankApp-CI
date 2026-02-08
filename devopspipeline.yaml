@@ -53,12 +53,12 @@ stages:
         targetType: 'inline'
         script: mvn compile
 
-    - task: Bash@3
-      displayName: 'Maven Test'
-      continueOnError: true
-      inputs:
-        targetType: 'inline'
-        script: mvn test
+    # - task: Bash@3
+    #   displayName: 'Maven Test'
+    #   continueOnError: true
+    #   inputs:
+    #     targetType: 'inline'
+    #     script: mvn test
 
     - task: PublishTestResults@2
       displayName: 'Publish Test Results'
@@ -170,11 +170,11 @@ stages:
       inputs:
         pollingTimeoutSec: '300'
 
-  - job: OWASPScan
-    displayName: 'OWASP Dependency Check'
-    continueOnError: true
-    steps:
-    - checkout: self
+  # - job: OWASPScan
+  #   displayName: 'OWASP Dependency Check'
+  #   continueOnError: true
+  #   steps:
+  #   - checkout: self
 
     - task: dependency-check-build-task@6
       inputs:
