@@ -1,0 +1,391 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_REGISTRY = 'your-registry.azurecr.io'
+        IMAGE_NAME = 'myapp'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        SONAR_HOST = 'http://sonarqube:9000'
+        ZAP_TARGET_URL = 'http://staging-app:8080'
+    }
+    
+    tools {
+        maven 'Maven-3.9'
+        jdk 'JDK-17'
+    }
+    
+    stages {
+        
+        // =====================================================
+        // STAGE 1: Checkout Code
+        // =====================================================
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'git rev-parse HEAD > commit.txt'
+            }
+        }
+        
+        // =====================================================
+        // STAGE 2: Build Application
+        // =====================================================
+        stage('Build') {
+            steps {
+                sh '''
+                    mvn clean compile -DskipTests
+                    mvn package -DskipTests
+                '''
+            }
+            post {
+                success {
+                    archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 3: Unit Tests
+        // =====================================================
+        stage('Unit Tests') {
+            steps {
+                sh 'mvn test'
+            }
+            post {
+                always {
+                    junit 'target/surefire-reports/*.xml'
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 4: SonarQube Analysis (SAST)
+        // =====================================================
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        mvn sonar:sonar \
+                            -Dsonar.projectKey=${IMAGE_NAME} \
+                            -Dsonar.projectName=${IMAGE_NAME} \
+                            -Dsonar.host.url=${SONAR_HOST} \
+                            -Dsonar.java.binaries=target/classes \
+                            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                            -Dsonar.exclusions=**/test/**,**/generated/**
+                    '''
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 5: SonarQube Quality Gate
+        // =====================================================
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 6: OWASP Dependency Check (SCA)
+        // =====================================================
+        stage('OWASP Dependency Check') {
+            steps {
+                dependencyCheck additionalArguments: '''
+                    --scan target/
+                    --format HTML
+                    --format JSON
+                    --format XML
+                    --prettyPrint
+                    --failOnCVSS 7
+                    --enableExperimental
+                ''', odcInstallation: 'OWASP-DC'
+            }
+            post {
+                always {
+                    dependencyCheckPublisher pattern: 'dependency-check-report.xml'
+                    archiveArtifacts artifacts: 'dependency-check-report.*', fingerprint: true
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 7: Trivy Scan - JAR/TAR Files
+        // =====================================================
+        stage('Trivy - Artifact Scan') {
+            steps {
+                sh '''
+                    echo "=== Scanning JAR files for vulnerabilities ==="
+                    
+                    # Scan JAR file
+                    trivy fs target/*.jar \
+                        --severity HIGH,CRITICAL \
+                        --format table \
+                        --output trivy-jar-report.txt
+                    
+                    # JSON report for parsing
+                    trivy fs target/*.jar \
+                        --severity HIGH,CRITICAL \
+                        --format json \
+                        --output trivy-jar-report.json
+                    
+                    # Check for critical vulnerabilities
+                    CRITICAL_COUNT=$(cat trivy-jar-report.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+                    
+                    echo "Critical vulnerabilities found: $CRITICAL_COUNT"
+                    
+                    if [ "$CRITICAL_COUNT" -gt 0 ]; then
+                        echo "WARNING: Critical vulnerabilities detected in JAR!"
+                        cat trivy-jar-report.txt
+                    fi
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-jar-report.*', fingerprint: true
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 8: Build Docker Image
+        // =====================================================
+        stage('Docker Build') {
+            steps {
+                sh '''
+                    docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} .
+                    docker tag ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest
+                '''
+            }
+        }
+        
+        // =====================================================
+        // STAGE 9: Trivy Scan - Docker Image
+        // =====================================================
+        stage('Trivy - Image Scan') {
+            steps {
+                sh '''
+                    echo "=== Scanning Docker image for vulnerabilities ==="
+                    
+                    # Table format for console
+                    trivy image ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+                        --severity HIGH,CRITICAL \
+                        --format table \
+                        --output trivy-image-report.txt
+                    
+                    # JSON format for parsing
+                    trivy image ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+                        --severity HIGH,CRITICAL \
+                        --format json \
+                        --output trivy-image-report.json
+                    
+                    # HTML report
+                    trivy image ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+                        --severity HIGH,CRITICAL \
+                        --format template \
+                        --template "@/usr/local/share/trivy/templates/html.tpl" \
+                        --output trivy-image-report.html
+                    
+                    # Fail on critical vulnerabilities
+                    trivy image ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+                        --severity CRITICAL \
+                        --exit-code 1 \
+                        --ignore-unfixed || {
+                            echo "CRITICAL vulnerabilities found! Review before proceeding."
+                            cat trivy-image-report.txt
+                            exit 1
+                        }
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-image-report.*', fingerprint: true
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 10: Push Docker Image
+        // =====================================================
+        stage('Docker Push') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-registry-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                        echo $DOCKER_PASS | docker login ${DOCKER_REGISTRY} -u $DOCKER_USER --password-stdin
+                        docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest
+                    '''
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 11: Deploy to Staging
+        // =====================================================
+        stage('Deploy to Staging') {
+            steps {
+                sh '''
+                    # Deploy to Kubernetes staging
+                    kubectl set image deployment/${IMAGE_NAME} \
+                        ${IMAGE_NAME}=${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+                        -n staging
+                    
+                    kubectl rollout status deployment/${IMAGE_NAME} -n staging --timeout=300s
+                '''
+            }
+        }
+        
+        // =====================================================
+        // STAGE 12: OWASP ZAP - DAST Scan
+        // =====================================================
+        stage('OWASP ZAP - DAST') {
+            steps {
+                sh '''
+                    echo "=== Running OWASP ZAP DAST Scan ==="
+                    
+                    # Wait for application to be ready
+                    sleep 30
+                    
+                    # Run ZAP baseline scan
+                    docker run --rm \
+                        -v $(pwd):/zap/wrk:rw \
+                        --network=host \
+                        owasp/zap2docker-stable zap-baseline.py \
+                        -t ${ZAP_TARGET_URL} \
+                        -r zap-report.html \
+                        -J zap-report.json \
+                        -x zap-report.xml \
+                        -I || true
+                    
+                    # Run ZAP full scan (more comprehensive)
+                    # docker run --rm \
+                    #     -v $(pwd):/zap/wrk:rw \
+                    #     --network=host \
+                    #     owasp/zap2docker-stable zap-full-scan.py \
+                    #     -t ${ZAP_TARGET_URL} \
+                    #     -r zap-full-report.html
+                '''
+            }
+            post {
+                always {
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: '.',
+                        reportFiles: 'zap-report.html',
+                        reportName: 'OWASP ZAP Report'
+                    ])
+                    archiveArtifacts artifacts: 'zap-report.*', fingerprint: true
+                }
+            }
+        }
+        
+        // =====================================================
+        // STAGE 13: Security Report Summary
+        // =====================================================
+        stage('Security Summary') {
+            steps {
+                sh '''
+                    echo "=============================================="
+                    echo "         SECURITY SCAN SUMMARY                "
+                    echo "=============================================="
+                    
+                    echo ""
+                    echo "📊 SonarQube Analysis: PASSED"
+                    echo "✅ Quality Gate: PASSED"
+                    
+                    echo ""
+                    echo "📦 OWASP Dependency Check:"
+                    if [ -f dependency-check-report.json ]; then
+                        VULN_COUNT=$(cat dependency-check-report.json | jq '.dependencies | map(select(.vulnerabilities != null)) | length')
+                        echo "   Dependencies with vulnerabilities: $VULN_COUNT"
+                    fi
+                    
+                    echo ""
+                    echo "🔍 Trivy JAR Scan:"
+                    if [ -f trivy-jar-report.json ]; then
+                        HIGH=$(cat trivy-jar-report.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length')
+                        CRITICAL=$(cat trivy-jar-report.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+                        echo "   HIGH: $HIGH | CRITICAL: $CRITICAL"
+                    fi
+                    
+                    echo ""
+                    echo "🐳 Trivy Image Scan:"
+                    if [ -f trivy-image-report.json ]; then
+                        HIGH=$(cat trivy-image-report.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length')
+                        CRITICAL=$(cat trivy-image-report.json | jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+                        echo "   HIGH: $HIGH | CRITICAL: $CRITICAL"
+                    fi
+                    
+                    echo ""
+                    echo "🕷️ OWASP ZAP DAST:"
+                    if [ -f zap-report.json ]; then
+                        ALERTS=$(cat zap-report.json | jq '.site[0].alerts | length')
+                        echo "   Security alerts found: $ALERTS"
+                    fi
+                    
+                    echo ""
+                    echo "=============================================="
+                '''
+            }
+        }
+        
+        // =====================================================
+        // STAGE 14: Deploy to Production (Manual Approval)
+        // =====================================================
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                input message: 'Deploy to Production?', ok: 'Deploy'
+                
+                sh '''
+                    kubectl set image deployment/${IMAGE_NAME} \
+                        ${IMAGE_NAME}=${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+                        -n production
+                    
+                    kubectl rollout status deployment/${IMAGE_NAME} -n production --timeout=300s
+                '''
+            }
+        }
+    }
+    
+    // =====================================================
+    // POST ACTIONS
+    // =====================================================
+    post {
+        always {
+            // Clean up Docker images
+            sh '''
+                docker rmi ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} || true
+                docker rmi ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest || true
+            '''
+            
+            // Clean workspace
+            cleanWs()
+        }
+        
+        success {
+            slackSend(
+                channel: '#devops',
+                color: 'good',
+                message: "✅ Pipeline SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+        }
+        
+        failure {
+            slackSend(
+                channel: '#devops',
+                color: 'danger',
+                message: "❌ Pipeline FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            )
+        }
+    }
+}
